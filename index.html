@@ -156,8 +156,8 @@
   const CONFIG = {
     SHEET_ID: '1Xpf4tjbXNQRW9ejj-rB04kjzfW5MsDEx6oljfwLShns',       // your live sheet ID
     SHEET_NAME: 'Sheet1',                                          // tab name to use
-    API_KEY: '<YOUR_GOOGLE_API_KEY>',                              // create in Google Cloud
-    CLIENT_ID: '<YOUR_GOOGLE_OAUTH_CLIENT_ID>.apps.googleusercontent.com', // OAuth Client ID (Web)
+    API_KEY: 'AIzaSyD9zv4WDJa6RFSwZqS3QHwSDXeD3gw4K1s',                              // create in Google Cloud
+    CLIENT_ID: '1095001346319-00g6ha328rbt8pavkgab99evrabs1dq7.apps.googleusercontent.com', // OAuth Client ID (Web)
     SCOPES: 'https://www.googleapis.com/auth/spreadsheets',
     AUTOSYNC_SECONDS: 10
   };
@@ -170,7 +170,9 @@
       if (c === '"') { if (inQuotes && text[i+1] === '"') { cur += '"'; i++; } else { inQuotes = !inQuotes; } }
       else if (c === ',' && !inQuotes) { row.push(cur); cur = ''; }
       else if ((c === '
-' || c === '') && !inQuotes) { if (cur !== '' || row.length) { row.push(cur); rows.push(row); row = []; cur=''; } if (c === '' && text[i+1] === '
+' || c === '
+') && !inQuotes) { if (cur !== '' || row.length) { row.push(cur); rows.push(row); row = []; cur=''; } if (c === '
+' && text[i+1] === '
 ') i++; }
       else { cur += c; }
     }
@@ -178,7 +180,9 @@
     return rows;
   }
   function toCSV(rows) { return rows.map(r => r.map(cell => { cell = cell == null ? '' : String(cell); if (cell.includes('"')) cell = cell.replaceAll('"', '""'); if (/[",
-]/.test(cell)) return '"' + cell + '"'; return cell; }).join(',')).join('
+
+]/.test(cell)) return '"' + cell + '"'; return cell; }).join(',')).join('
+
 '); }
   const A1 = { colToA1: (idx)=>{ let s=''; idx++; while(idx>0){ const m=(idx-1)%26; s=String.fromCharCode(65+m)+s; idx=Math.floor((idx-1)/26);} return s; } };
 
