@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dinner Check‑In (CSV / Google Sheets)</title>
+  <style>
+    :root {
+      --bg: #0f172a;           /* slate-900 */
+      --panel: #111827;        /* gray-900 */
+      --muted: #94a3b8;        /* slate-400 */
+      --text: #e5e7eb;         /* gray-200 */
+      --accent: #22c55e;       /* green-500 */
+      --accent-2: #3b82f6;     /* blue-500 */
+      --warn: #ef4444;         /* red-500 */
+      --chip: #1f2937;         /* gray-800 */
+      --chip-2: #0b1220;       /* custom */
+      --radius: 16px;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; background: linear-gradient(180deg, var(--bg), #0b1020 35%, #070b14 100%); color: var(--text); }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
+    header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 5; backdrop-filter: blur(8px); padding: 12px 0; border-bottom: 1px solid #1f2937; background: linear-gradient(180deg, rgba(2,6,23,0.8), rgba(2,6,23,0)); }
+    h1 { font-size: 1.4rem; margin: 0; letter-spacing: 0.3px; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    input[type="file"] { display: none; }
+    .btn, .chip { appearance: none; border: 1px solid #1f2937; background: var(--chip); color: var(--text); padding: 10px 14px; border-radius: var(--radius); font-size: 16px; line-height: 1; cursor: pointer; min-height: 44px; }
+    .btn.primary { background: linear-gradient(180deg, var(--accent-2), #2563eb); border: none; color: white; }
+    .btn.success { background: linear-gradient(180deg, var(--accent), #16a34a); border: none; color: white; }
+    .btn.warn { background: linear-gradient(180deg, var(--warn), #b91c1c); border: none; color: white; }
+    .btn.ghost { background: var(--chip-2); }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .toolbar { display: grid; grid-template-columns: 1fr; gap: 10px; margin: 16px 0; }
+    @media (min-width: 800px) { .toolbar { grid-template-columns: 1.6fr 1fr 1fr; } }
+
+    .card { background: linear-gradient(180deg, #0b1220, #0a0f1a); border: 1px solid #1f2937; border-radius: var(--radius); padding: 14px; }
+    .grid { display: grid; gap: 8px; }
+
+    .input, select { width: 100%; min-height: 44px; padding: 10px 12px; border-radius: 12px; background: #0b1220; border: 1px solid #1f2937; color: var(--text); font-size: 16px; }
+
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #1f2937; vertical-align: middle; }
+    th { position: sticky; top: 88px; background: #0a0f1a; z-index: 4; font-weight: 600; color: #cbd5e1; }
+    tr:hover td { background: #0a1220; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; font-size: 13px; }
+    .pill.ok { background: rgba(34,197,94,0.15); color: #86efac; border: 1px solid rgba(34,197,94,0.3); }
+    .pill.no { background: rgba(239,68,68,0.15); color: #fecaca; border: 1px solid rgba(239,68,68,0.3); }
+
+    .kiosk { position: fixed; right: 16px; bottom: 16px; display: flex; gap: 8px; }
+
+    .footer { color: var(--muted); font-size: 13px; margin-top: 8px; }
+    .hint { color: #9ca3af; font-size: 14px; }
+    .small { font-size: 12px; color: var(--muted); }
+    .nowrap { white-space: nowrap; }
+    .status { font-size: 13px; color: #93c5fd; }
+  </style>
+  <!-- Google APIs -->
+  <script async defer src="https://apis.google.com/js/api.js"></script>
+  <script async defer src="https://accounts.google.com/gsi/client"></script>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>🍽️ Dinner Check‑In & Seating – Multi‑iPad (Google Sheets)</h1>
+      <div class="row">
+        <!-- Local CSV controls -->
+        <label class="btn ghost" for="csvInput">📂 Load CSV</label>
+        <input id="csvInput" type="file" accept=".csv" />
+        <button id="saveCsv" class="btn" disabled>💾 Export Updated CSV</button>
+        <button id="addSample" class="btn" title="Create a small sample to try">➕ Sample</button>
+        <!-- Google Sheets controls -->
+        <button id="authBtn" class="btn primary">🔐 Sign in</button>
+        <button id="loadSheet" class="btn" disabled>⬇️ Load from Sheet</button>
+        <button id="syncSheet" class="btn success" disabled>⭮ Sync Changes</button>
+        <label class="btn ghost" style="display:inline-flex;gap:8px;align-items:center;">
+          <input id="autosyncToggle" type="checkbox" /> Auto‑sync
+        </label>
+      </div>
+    </header>
+
+    <section class="toolbar">
+      <div class="card grid">
+        <input id="search" class="input" placeholder="Search name, email, table, seat, id…" autocomplete="off" />
+        <div class="row">
+          <select id="filterConfirm">
+            <option value="">All confirmation statuses</option>
+            <option value="true">Confirmed</option>
+            <option value="false">Unconfirmed</option>
+          </select>
+          <select id="filterCheckin">
+            <option value="">All check‑in states</option>
+            <option value="true">Checked‑in</option>
+            <option value="false">Not checked‑in</option>
+          </select>
+          <select id="filterTable">
+            <option value="">All tables</option>
+          </select>
+        </div>
+        <div class="status" id="status">Offline (CSV mode)</div>
+      </div>
+      <div class="card grid">
+        <div class="row">
+          <input id="newName" class="input" placeholder="Add guest: Full name" />
+        </div>
+        <div class="row">
+          <input id="newEmail" class="input" placeholder="Email (optional)" />
+          <input id="newTable" class="input" placeholder="Table" style="max-width: 140px;" />
+          <input id="newSeat" class="input" placeholder="Seat" style="max-width: 120px;" />
+          <button id="addGuest" class="btn success">Add</button>
+        </div>
+      </div>
+      <div class="card grid">
+        <div class="row">
+          <button id="bulkCheckin" class="btn success">Mark Visible as Checked‑in</button>
+          <button id="bulkClear" class="btn warn">Clear Check‑in (Visible)</button>
+        </div>
+        <div class="footer">Changes auto‑save locally. When using Google Sheets, use ⭮ Sync (or enable Auto‑sync) so all iPads see updates.</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div id="counts" class="hint">—</div>
+      <div style="overflow:auto; margin-top: 8px;">
+        <table id="grid">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Confirmed</th>
+              <th>Table</th>
+              <th>Seat</th>
+              <th>Checked‑in</th>
+              <th class="nowrap">Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="kiosk">
+      <button id="kioskOn" class="btn">🧑‍✈️ Usher Mode</button>
+      <button id="kioskOff" class="btn" style="display:none;">↩️ Exit Usher Mode</button>
+    </div>
+
+    <p class="footer">CSV headers expected: <code>id,name,email,confirmed,table,seat,checked_in</code>. For Google Sheets, the first row must contain these headers (order can vary). You can host this file on GitHub Pages; it uses Google OAuth in‑browser.</p>
+  </div>
+
+  <script>
+  // =============================
+  //  Config (EDIT THESE)
+  // =============================
+  const CONFIG = {
+    SHEET_ID: '1Xpf4tjbXNQRW9ejj-rB04kjzfW5MsDEx6oljfwLShns',       // your live sheet ID
+    SHEET_NAME: 'Sheet1',                                          // tab name to use
+    API_KEY: '<YOUR_GOOGLE_API_KEY>',                              // create in Google Cloud
+    CLIENT_ID: '<YOUR_GOOGLE_OAUTH_CLIENT_ID>.apps.googleusercontent.com', // OAuth Client ID (Web)
+    SCOPES: 'https://www.googleapis.com/auth/spreadsheets',
+    AUTOSYNC_SECONDS: 10
+  };
+
+  // ---- Small CSV helper (quotes, commas, newlines) ----
+  function parseCSV(text) {
+    const rows = []; let cur = '', inQuotes = false; let row = [];
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (c === '"') { if (inQuotes && text[i+1] === '"') { cur += '"'; i++; } else { inQuotes = !inQuotes; } }
+      else if (c === ',' && !inQuotes) { row.push(cur); cur = ''; }
+      else if ((c === '
+' || c === '') && !inQuotes) { if (cur !== '' || row.length) { row.push(cur); rows.push(row); row = []; cur=''; } if (c === '' && text[i+1] === '
+') i++; }
+      else { cur += c; }
+    }
+    if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+    return rows;
+  }
+  function toCSV(rows) { return rows.map(r => r.map(cell => { cell = cell == null ? '' : String(cell); if (cell.includes('"')) cell = cell.replaceAll('"', '""'); if (/[",
+]/.test(cell)) return '"' + cell + '"'; return cell; }).join(',')).join('
+'); }
+  const A1 = { colToA1: (idx)=>{ let s=''; idx++; while(idx>0){ const m=(idx-1)%26; s=String.fromCharCode(65+m)+s; idx=Math.floor((idx-1)/26);} return s; } };
+
+  // ---- App State ----
+  const REQUIRED_HEADERS = ['id','name','email','confirmed','table','seat','checked_in'];
+  let data = []; // array of records
+  let headers = [...REQUIRED_HEADERS];
+  let filenameBase = 'guest_list';
+  let sheetMode = false; // false=CSV/local; true=Google Sheets
+  let headerIndex = {};  // map header->column index (sheet)
+  let autosyncTimer = null; let lastLoadedEtag = null;
+
+  // Persist to localStorage for iPad continuity
+  const STORAGE_KEY = 'dinner_checkin_state_v2';
+  const saveLocal = () => localStorage.setItem(STORAGE_KEY, JSON.stringify({headers, data, filenameBase, sheetMode}));
+  const loadLocal = () => { try { const raw = localStorage.getItem(STORAGE_KEY); if (!raw) return false; const obj = JSON.parse(raw); if (!obj || !obj.data) return false; headers = obj.headers || headers; data = obj.data || []; filenameBase = obj.filenameBase || filenameBase; sheetMode = obj.sheetMode || false; render(); return true; } catch (e) { console.warn(e); return false; } }
+
+  // ---- DOM helpers ----
+  const $ = sel => document.querySelector(sel);
+  const gridBody = $('#grid tbody');
+  const countsEl = $('#counts');
+  const statusEl = $('#status');
+
+  function normalizeRecord(rec) {
+    const obj = {}; REQUIRED_HEADERS.forEach(h => obj[h] = rec[h] ?? '');
+    obj.confirmed = toBool(obj.confirmed); obj.checked_in = toBool(obj.checked_in);
+    return obj;
+  }
+  function toBool(v){ const s=String(v).trim().toLowerCase(); return s==='true'||s==='1'||s==='yes'||s==='y'; }
+
+  // =============================
+  //  Google Sheets integration
+  // =============================
+  let gapiInited=false, gisInited=false, tokenClient=null;
+
+  window.addEventListener('load', () => {
+    if (window.gapi) { gapi.load('client', async () => { gapiInited=true; }); }
+    if (window.google && window.google.accounts && window.google.accounts.oauth2) { gisInited=true; }
+  });
+
+  async function ensureGapi() {
+    if (!gapiInited) await new Promise(res => gapi.load('client', res));
+    if (!gapi.client?.apiKey) await gapi.client.init({ apiKey: CONFIG.API_KEY, discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'] });
+  }
+  function ensureTokenClient() {
+    if (tokenClient) return tokenClient;
+    tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CONFIG.CLIENT_ID, scope: CONFIG.SCOPES, callback: (resp) => { if (resp.error) { console.error(resp); alert('Auth error'); } else { status('Signed in.'); enableSheetButtons(true); } } });
+    return tokenClient;
+  }
+  function requestToken() {
+    ensureTokenClient(); tokenClient.requestAccessToken({ prompt: '' });
+  }
+
+  async function loadFromSheet() {
+    try {
+      await ensureGapi(); if (!gapi.client.getToken()) requestToken();
+      status('Loading from Google Sheets…');
+      const range = `${CONFIG.SHEET_NAME}!A:Z`;
+      const resp = await gapi.client.sheets.spreadsheets.values.get({ spreadsheetId: CONFIG.SHEET_ID, range });
+      const values = resp.result.values || [];
+      if (!values.length) { alert('Sheet is empty'); return; }
+      headers = values[0].map(h => (h||'').trim().toLowerCase());
+      // ensure required headers exist
+      REQUIRED_HEADERS.forEach(h => { if (!headers.includes(h)) headers.push(h); });
+      headerIndex = Object.fromEntries(headers.map((h,i)=>[h,i]));
+      data = values.slice(1).map((row, i) => {
+        const rec = {}; headers.forEach((h,idx)=>{ rec[h]=row[idx] ?? ''; });
+        rec.__row = i + 2; // actual row number in sheet
+        return normalizeRecord(rec);
+      }).filter(r => Object.values(r).some(v => String(v).trim() !== ''));
+      sheetMode = true; saveLocal(); render();
+      status('Loaded from Google Sheets.');
+      lastLoadedEtag = resp.headers && (resp.headers.ETag || resp.headers.etag) || null;
+    } catch (e) {
+      console.error(e); alert('Failed to load from Google Sheets. Check API key, OAuth client, Sheet ID/name, and sharing.');
+    }
+  }
+
+  function changesForSheet() {
+    // We only push back changed checked_in / table / seat / confirmed
+    const cols = ['checked_in','table','seat','confirmed'];
+    const updates = [];
+    data.forEach(rec => {
+      const row = rec.__row; if (!row) return; // new rows need append (not implemented for simplicity)
+      cols.forEach(k => {
+        const colIdx = headerIndex[k]; if (colIdx==null) return;
+        const val = typeof rec[k] === 'boolean' ? (rec[k] ? 'true' : 'false') : (rec[k] ?? '');
+        updates.push({ range: `${CONFIG.SHEET_NAME}!${A1.colToA1(colIdx)}${row}`, values: [[val]] });
+      });
+    });
+    return updates;
+  }
+
+  async function syncToSheet() {
+    try {
+      await ensureGapi(); if (!gapi.client.getToken()) requestToken();
+      status('Syncing to Google Sheets…');
+      const dataRanges = changesForSheet();
+      if (!dataRanges.length) { status('Nothing to sync.'); return; }
+      await gapi.client.sheets.spreadsheets.values.batchUpdate({ spreadsheetId: CONFIG.SHEET_ID, resource: { data: dataRanges, valueInputOption: 'RAW' } });
+      status('Synced ✓');
+    } catch (e) { console.error(e); alert('Sync failed.'); status('Sync failed'); }
+  }
+
+  async function autosyncLoop(enabled) {
+    if (autosyncTimer) { clearInterval(autosyncTimer); autosyncTimer = null; }
+    if (!enabled) return;
+    autosyncTimer = setInterval(async () => {
+      if (!sheetMode) return;
+      try {
+        // pull latest (lightweight): just reload the sheet
+        await loadFromSheet();
+      } catch (e) { console.warn('Auto‑sync load failed'); }
+    }, CONFIG.AUTOSYNC_SECONDS * 1000);
+  }
+
+  function enableSheetButtons(on){ $('#loadSheet').disabled = !on; $('#syncSheet').disabled = !on; }
+  function status(msg){ statusEl.textContent = msg; }
+
+  // =============================
+  //  Core UI logic
+  // =============================
+  function importCSVText(text) {
+    const rows = parseCSV(text);
+    if (!rows.length) return;
+    const hdr = rows[0].map(h => (h||'').trim().toLowerCase());
+    const map = {}; hdr.forEach((h, i) => map[h] = i);
+    headers = [...new Set([...REQUIRED_HEADERS, ...hdr])];
+    data = rows.slice(1).filter(r => r.length && r.some(x => String(x).trim() !== '')).map(r => { const rec = {}; headers.forEach(h => { rec[h] = r[map[h]] ?? ''; }); return normalizeRecord(rec); });
+    let maxId = 0; data.forEach((d) => { if (String(d.id).trim() === '') { d.id = ++maxId; } else { const n = Number(d.id); if (!Number.isNaN(n)) maxId = Math.max(maxId, n); } });
+    sheetMode = false; saveLocal(); render(); status('Offline (CSV mode)');
+  }
+
+  function exportCSV() {
+    const hdr = headers; const rows = [hdr, ...data.map(rec => hdr.map(h => (typeof rec[h] === 'boolean') ? (rec[h] ? 'true' : 'false') : (rec[h] ?? '')) )];
+    const csv = toCSV(rows); const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${filenameBase}_updated.csv`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  }
+
+  function render() {
+    const tables = new Set(); data.forEach(d => { if (String(d.table).trim() !== '') tables.add(String(d.table)); });
+    const tableSel = $('#filterTable'); tableSel.innerHTML = '<option value="">All tables</option>' + [...tables].sort((a,b)=>String(a).localeCompare(String(b), undefined, {numeric:true})).map(t=>`<option value="${String(t)}">${String(t)}</option>`).join('');
+
+    const q = $('#search').value.trim().toLowerCase();
+    const fConf = $('#filterConfirm').value; const fChk = $('#filterCheckin').value; const fTab = $('#filterTable').value;
+
+    const rows = data.filter(d => {
+      let ok = true;
+      if (q) { const hay = `${d.id}|${d.name}|${d.email}|${d.table}|${d.seat}`.toLowerCase(); ok = hay.includes(q); }
+      if (ok && fConf !== '') ok = String(d.confirmed) === fConf;
+      if (ok && fChk !== '') ok = String(d.checked_in) === fChk;
+      if (ok && fTab !== '') ok = String(d.table) === fTab;
+      return ok;
+    });
+
+    const total = data.length; const checked = data.filter(d => d.checked_in).length;
+    countsEl.textContent = `Showing ${rows.length} of ${total} • Checked‑in ${checked}/${total}`;
+
+    gridBody.innerHTML = rows.map(rec => {
+      return `<tr data-id="${rec.id}">
+        <td class="nowrap">${rec.id}</td>
+        <td>${escapeHtml(rec.name)}</td>
+        <td>${escapeHtml(rec.email)}</td>
+        <td>${rec.confirmed ? '<span class="pill ok">Yes</span>' : '<span class="pill no">No</span>'}</td>
+        <td>${cellEditable('table', rec.table)}</td>
+        <td>${cellEditable('seat', rec.seat)}</td>
+        <td>${rec.checked_in ? '<span class="pill ok">Checked</span>' : '<span class="pill no">Not yet</span>'}</td>
+        <td class="nowrap">
+          <button class="btn success act-checkin" data-id="${rec.id}">${rec.checked_in ? 'Undo' : 'Check‑in'}</button>
+          <button class="btn ghost act-edit" data-id="${rec.id}">Edit</button>
+          <button class="btn warn act-delete" data-id="${rec.id}">Delete</button>
+        </td>
+      </tr>`
+    }).join('');
+
+    gridBody.querySelectorAll('.act-checkin').forEach(b => b.onclick = () => toggleCheckin(b.dataset.id));
+    gridBody.querySelectorAll('.act-delete').forEach(b => b.onclick = () => deleteGuest(b.dataset.id));
+    gridBody.querySelectorAll('.act-edit').forEach(b => b.onclick = () => editRowInline(b.dataset.id));
+
+    $('#saveCsv').disabled = data.length === 0;
+  }
+
+  function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c])); }
+  function cellEditable(key, val) { return `<span class="cell" data-key="${key}" contenteditable="false" style="display:inline-block; min-width:40px; padding:6px 8px; border-radius:8px; border:1px solid transparent;">${escapeHtml(val)}</span>`; }
+
+  function editRowInline(id) {
+    const tr = gridBody.querySelector(`tr[data-id="${CSS.escape(String(id))}"]`);
+    if (!tr) return;
+    const spans = tr.querySelectorAll('.cell');
+    spans.forEach(s => { s.contentEditable = 'true'; s.style.border = '1px solid #334155'; s.focus(); });
+    const commit = async () => {
+      const rec = data.find(r => String(r.id) === String(id));
+      spans.forEach(s => { const k = s.dataset.key; rec[k] = s.innerText.trim(); });
+      saveLocal(); render();
+      if (sheetMode) await syncToSheet();
+    }
+    spans.forEach(s => s.onblur = commit);
+  }
+
+  async function toggleCheckin(id) {
+    const rec = data.find(r => String(r.id) === String(id)); if (!rec) return;
+    rec.checked_in = !rec.checked_in; saveLocal(); render();
+    if (sheetMode) await syncToSheet();
+  }
+
+  function deleteGuest(id) {
+    if (!confirm('Delete this guest?')) return;
+    data = data.filter(r => String(r.id) !== String(id)); saveLocal(); render();
+  }
+
+  function addGuest() {
+    const name = $('#newName').value.trim(); if (!name) { alert('Name is required'); return; }
+    const email = $('#newEmail').value.trim(); const table = $('#newTable').value.trim(); const seat = $('#newSeat').value.trim();
+    const nextId = nextNumericId(); const rec = normalizeRecord({ id: nextId, name, email, confirmed: true, table, seat, checked_in: false });
+    data.push(rec); $('#newName').value=''; $('#newEmail').value=''; $('#newTable').value=''; $('#newSeat').value='';
+    saveLocal(); render();
+  }
+  function nextNumericId() { let max = 0; data.forEach(r => { const n = Number(r.id); if (!Number.isNaN(n)) max = Math.max(max, n); }); return max + 1; }
+
+  function bulkCheckin(checked) {
+    const q = $('#search').value.trim().toLowerCase(); const fConf = $('#filterConfirm').value; const fChk = $('#filterCheckin').value; const fTab = $('#filterTable').value;
+    data.forEach(d => { let ok = true; if (q) { const hay = `${d.id}|${d.name}|${d.email}|${d.table}|${d.seat}`.toLowerCase(); ok = hay.includes(q); } if (ok && fConf !== '') ok = String(d.confirmed) === fConf; if (ok && fChk !== '') ok = String(d.checked_in) === fChk; if (ok && fTab !== '') ok = String(d.table) === fTab; if (ok) d.checked_in = checked; });
+    saveLocal(); render(); if (sheetMode) syncToSheet();
+  }
+
+  function setKiosk(on) { document.body.style.fontSize = on ? '18px' : ''; document.querySelectorAll('.toolbar, .footer, #addSample').forEach(el => el.style.display = on ? 'none' : ''); document.querySelectorAll('.act-delete, .act-edit').forEach(el => el.style.display = on ? 'none' : ''); $('#kioskOn').style.display = on ? 'none' : ''; $('#kioskOff').style.display = on ? '' : 'none'; }
+
+  // ---- Wire up UI ----
+  $('#csvInput').addEventListener('change', (e) => { const file = e.target.files?.[0]; if (!file) return; filenameBase = file.name.replace(/\.csv$/i,'') || 'guest_list'; const reader = new FileReader(); reader.onload = () => importCSVText(reader.result); reader.readAsText(file); });
+  $('#saveCsv').onclick = exportCSV; $('#addGuest').onclick = addGuest; $('#bulkCheckin').onclick = () => bulkCheckin(true); $('#bulkClear').onclick = () => bulkCheckin(false); $('#kioskOn').onclick = () => setKiosk(true); $('#kioskOff').onclick = () => setKiosk(false);
+  ['search','filterConfirm','filterCheckin','filterTable'].forEach(id => { document.getElementById(id).addEventListener('input', render); document.getElementById(id).addEventListener('change', render); });
+
+  // Google buttons
+  $('#authBtn').onclick = () => { ensureGapi().then(()=>{ requestToken(); status('Authenticating…'); }); };
+  $('#loadSheet').onclick = loadFromSheet;
+  $('#syncSheet').onclick = syncToSheet;
+  $('#autosyncToggle').addEventListener('change', (e)=> autosyncLoop(e.target.checked));
+
+  // Sample data
+  $('#addSample').onclick = () => {
+    headers = [...REQUIRED_HEADERS]; data = [ {id:1, name:'Aisha Khan', email:'aisha@example.com', confirmed:true, table:'1', seat:'A', checked_in:false}, {id:2, name:'Omar Ali', email:'omar@example.com', confirmed:true, table:'1', seat:'B', checked_in:true}, {id:3, name:'Leila Haddad', email:'leila@example.com', confirmed:false, table:'2', seat:'A', checked_in:false}, {id:4, name:'Daniel Cruz', email:'daniel@example.com', confirmed:true, table:'2', seat:'B', checked_in:false} ].map(normalizeRecord); filenameBase = 'guest_list_sample'; saveLocal(); render(); };
+
+  // Load any previous session
+  if (!loadLocal()) render();
+
+  // Add to Home Screen hint (iOS): prompt once
+  if (navigator.userAgent.includes('iPhone') || navigator.userAgent.includes('iPad')) { if (!localStorage.getItem('a2hs_hint')) { setTimeout(()=>{ alert('Tip: Add this page to your Home Screen for a full‑screen app experience on iPad. In Safari, tap Share → Add to Home Screen.'); localStorage.setItem('a2hs_hint','1'); }, 1200); } }
+  </script>
+</body>
+</html>
